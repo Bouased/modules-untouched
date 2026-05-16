@@ -1,0 +1,25 @@
+/*
+ * NouriWamp Module consolez - Gradle Settings
+ */
+
+rootProject.name = 'module-untouched'
+
+// Enable Gradle features for better performance
+enableFeaturePreview('STABLE_CONFIGURATION_CACHE')
+
+// Configure build cache for faster builds
+buildCache {
+    local {
+        enabled = true
+        directory = file("${rootDir}/.gradle/build-cache")
+    }
+}
+
+// Display initialization message
+gradle.rootProject {
+    println """
+    ================================================================
+      Initializing NouriWamp Module untouched Build
+    ================================================================
+    """.stripIndent()
+}
