@@ -1,0 +1,246 @@
+/*
+ * Usage:
+ *   gradle tasks                              - List all available tasks
+ */
+
+plugins {
+    id 'base'
+}
+
+// Load build properties
+def buildProps = new Properties()
+file('build.properties').withInputStream { buildProps.load(it) }
+
+// Project information
+group = "com.${buildProps.getProperty('release.group', 'app')}.modules"
+version = buildProps.getProperty('bundle.release', '1.0.0')
+description = "NouriWamp Module - ${buildProps.getProperty('bundle.name', 'untouched')}"
+
+// Define project paths
+ext {
+    projectBasedir = projectDir.absolutePath
+    projectParentDir = file("${projectBasedir}").parent
+    projectRootDir = file("${projectParentDir}").parent
+    devPath = file("${projectRootDir}/dev").absolutePath
+    buildPropertiesFile = file('build.properties').absolutePath
+
+    // Bundle properties from build.properties
+    bundleName = buildProps.getProperty('bundle.name', 'untouched')
+    bundleRelease = buildProps.getProperty('bundle.release', '1.0.0')
+
+    gitOwn = buildProps.getProperty('github.owen')
+}
+
+// Verify dev path exists
+if (!file(ext.devPath).exists()) {
+    throw new GradleException("Dev path not found: ${ext.devPath}. Please ensure the 'dev' project exists in ${ext.projectRootDir}")
+}
+
+// Configure repositories for dependencies
+repositories {
+    mavenCentral()
+}
+
+
+// Function to fetch modules-untouched apache.properties
+def fetchModulesUntouchedProperties(String moduleName) {
+    def propsUrl = "https://raw.githubusercontent.com/${gitOwn}/modules-untouched/main/modules/${moduleName}.properties"
+
+    try {
+        def connection = new URL(propsUrl).openConnection()
+        connection.setConnectTimeout(10000)
+        connection.setReadTimeout(10000)
+
+        def props = new Properties()
+        connection.inputStream.withStream { stream ->
+            props.load(stream)
+        }
+
+        return props
+    } catch (Exception e) {
+        println "  Warning: Could not fetch modules-untouched ${moduleName}.properties: ${e.message}"
+        return null
+    }
+}
+
+// ============================================================================
+// GRADLE NATIVE TASKS
+// ============================================================================
+
+// Task: Display build information
+tasks.register('info') {
+    group = 'help'
+    description = 'Display build configuration information'
+
+    // Capture values at configuration time to avoid deprecation warnings
+    def projectName = project.name
+    def projectVersion = project.version
+    def projectDescription = project.description
+    def projectBasedirValue = projectBasedir
+    def projectParentDirValue = projectParentDir
+    def projectRootDirValue = projectRootDir
+    def devPathValue = devPath
+    def bundleNameValue = bundleName
+    def bundleReleaseValue = bundleRelease
+
+    def javaVersion = JavaVersion.current()
+    def javaHome = System.getProperty('java.home')
+    def gradleVersion = gradle.gradleVersion
+    def gradleHome = gradle.gradleHomeDir
+
+    doLast {
+        println """
+        ================================================================
+                  NouriWamp Module consolez - Build Info
+        ================================================================
+
+        Project:        ${projectName}
+        Version:        ${projectVersion}
+        Description:    ${projectDescription}
+
+        Bundle Properties:
+          Name:         ${bundleNameValue}
+          Release:      ${bundleReleaseValue}
+
+        Paths:
+          Project Dir:          ${projectBasedirValue}
+          Project Parent Dir:   ${projectParentDirValue}
+          Root Dir:             ${projectRootDirValue}
+          Dev Path:             ${devPathValue}
+
+        Java:
+          Version:      ${javaVersion}
+          Home:         ${javaHome}
+
+        Gradle:
+          Version:      ${gradleVersion}
+          Home:         ${gradleHome}
+
+        Available Task Groups:
+          * build        - Build and package tasks
+          * help         - Help and information tasks
+          * verification - Verification tasks
+
+        Quick Start:
+          gradle tasks                            - List all available tasks
+        """.stripIndent()
+    }
+}
+
+// ============================================================================
+// DEFAULT TASK
+// ============================================================================
+// Task: Check modules-untouched integration
+tasks.register('checkModulesUntouched') {
+    group = 'verification'
+    description = 'Check modules-untouched repository integration and available versions'
+
+    doLast {
+        println ""
+        println "=" * 70
+        println "Modules-Untouched Integration Check"
+        println "=" * 70
+        println ""
+
+        // lister les fichiers dans le dossier modules ensuite définir ${moduleName} à partir de nom de fichier
+        // faire une boucle pour traite les modules
+        def modulesDir = file("${projectDir}/modules")
+        if (!modulesDir.exists() || !modulesDir.isDirectory()) {
+            println "  [ERROR] Modules directory not found: ${modulesDir.absolutePath}"
+            return
+        }
+
+        def moduleFiles = modulesDir.listFiles({ file -> file.isFile() && file.name.endsWith('.properties') } as FileFilter)
+        if (!moduleFiles) {
+            println "  [INFO] No module property files found in ${modulesDir.absolutePath}"
+            return
+        }
+
+        moduleFiles.each { file ->
+            def moduleName = file.name.replace('.properties', '')
+            println "Processing module: ${moduleName}"
+
+            def propsUrl = "https://raw.githubusercontent.com/${gitOwn}/modules-untouched/main/modules/${moduleName}.properties"
+            println "Repository URL:"
+            println "  ${propsUrl}"
+            println ""
+
+            println "Fetching apache.properties from modules-untouched..."
+            def untouchedProps = fetchModulesUntouchedProperties("${moduleName}")
+
+            if (untouchedProps) {
+                println ""
+                println "=" * 70
+                println "Available Versions in modules-untouched"
+                println "=" * 70
+
+                def sortedVersions = untouchedProps.sort { a, b ->
+                    // Simple version comparison
+                    def aParts = a.key.tokenize('.')
+                    def bParts = b.key.tokenize('.')
+                    for (int i = 0; i < Math.min(aParts.size(), bParts.size()); i++) {
+                        def aNum = aParts[i].toInteger()
+                        def bNum = bParts[i].toInteger()
+                        if (aNum != bNum) return aNum <=> bNum
+                    }
+                    return aParts.size() <=> bParts.size()
+                }
+
+                sortedVersions.each { version, url ->
+                    println "  ${version.padRight(10)}"
+                }
+
+                println "=" * 70
+                println "Total versions: ${untouchedProps.size()}"
+                println ""
+
+                println ""
+                println "=" * 70
+                println "[SUCCESS] modules-untouched integration is working"
+                println "=" * 70
+                println ""
+                println "Version Resolution Strategy:"
+                println "  1. Check modules-untouched apache.properties (remote)"
+                println "  2. Check GitHub repository for direct archive files (fallback)"
+                println ""
+                println "Documentation: /.gradle-docs/MODULES_UNTOUCHED_INTEGRATION.md"
+
+            } else {
+                println ""
+                println "=" * 70
+                println "[WARNING] Could not fetch apache.properties from modules-untouched"
+                println "=" * 70
+                println ""
+                println "This may be due to:"
+                println "  - Network connectivity issues"
+                println "  - Repository access problems"
+                println "  - File not available at expected location"
+                println ""
+                println "The build system will fall back to:"
+                println "  1. Direct GitHub repository archive detection"
+            }
+        }
+    }
+}
+
+// ============================================================================
+// BUILD LIFECYCLE HOOKS
+// ============================================================================
+
+gradle.taskGraph.whenReady { graph ->
+    println """
+    ================================================================
+      NouriWamp Module consolez - Gradle Build
+    ================================================================
+    """.stripIndent()
+}
+
+// ============================================================================
+// DEFAULT TASK
+// ============================================================================
+// Disable wrapper task - Gradle is installed locally, wrappers are not used
+tasks.named('wrapper') {
+    enabled = false
+}
+
+defaultTasks 'info'
